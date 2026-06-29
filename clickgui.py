@@ -50,6 +50,7 @@ def log(message: str, level: str = "INFO"):
 # =====================================================================
 
 
+CLIENT_VERSION = "1.0.11"
 
 
 # =====================================================================
@@ -62,7 +63,7 @@ settings = {
     "alpha": 0.80,
     "hide_uninjected": "hide",
     "windows": {},
-    "config": "default.config"
+    "config": "default"
 }
 API_BASE = "http://127.0.0.1:65534"
 CLIENT_NAME = "Duplex Lab"
@@ -83,8 +84,8 @@ if not os.path.exists(script_dir / "data"):
     os.makedirs(script_dir / "data")
 if not os.path.exists(script_dir / "data" / "configs"):
     os.makedirs(script_dir / "data" / "configs")
-if not os.path.exists(script_dir / "data" / "configs" / settings["config"]):
-    with open(script_dir / "data" / "configs" / settings["config"], "w") as f:
+if not os.path.exists(script_dir / "data" / "configs" / f"{settings['config']}.config"):
+    with open(script_dir / "data" / "configs" / f"{settings['config']}.config", "w") as f:
         json.dump(config, f, indent=4)
 if not os.path.exists(script_dir / "data" / "themes"):
     os.makedirs(script_dir / "data" / "themes")
@@ -93,8 +94,13 @@ if not os.path.exists(script_dir / "data" / "settings.json"):
         json.dump(settings, f, indent=4)
 with open(script_dir / "data" / "settings.json", "r") as f:
     settings = json.load(f)
-with open(script_dir / "data" / "configs" / settings["config"], "r") as f:
-    config = json.load(f)
+try:
+    with open(script_dir / "data" / "configs" / f"{settings['config']}.config", "r") as f:
+        config = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError) as e:
+    log(f"Error loading config {settings['config']}: {e}", "ERROR")
+    settings["config"] = "default"
+    config = {}
 theme_files = [f.name for f in pathlib.Path(script_dir / "data" / "themes").iterdir() if f.is_file()]
 for theme_file in theme_files:
     try:
@@ -161,7 +167,7 @@ def api_request(endpoint, method="GET"):
     return None
 def save_config():
     try:
-        with open(script_dir / "data" / "configs" / settings["config"], "w") as f:
+        with open(script_dir / "data" / "configs" / f"{settings['config']}.config", "w") as f:
             json.dump(config, f, indent=4)
     except Exception as e:
         log(f"Failed to save configuration: {e}", "ERROR")
@@ -336,6 +342,8 @@ class ModuleRow(tk.Frame):
         self.update_status()
     def reload_cfg(self):
         global config
+        if not self.name in config["modules"]:
+            config["modules"][self.name] = {"active": False, "keybind": "None", "value": 0}
         self.toggle_active(state=config["modules"][self.name].get("active", False))
         if hasattr(self, 'slider'):
             self.slider.set(config["modules"][self.name].get("value", self.data.get("min_value", 0))) if hasattr(self, 'slider') else None
@@ -554,13 +562,25 @@ class ClickGUIApp:
         elif selected_config == "New Config":
             new_config_name = simpledialog.askstring("New Config", "Enter new config name:")
             new_config_name = new_config_name + ".config"
-            if new_config_name:
-                configs[new_config_name] = {}
-                config = configs[new_config_name]
-                settings["config"] = new_config_name
-                save_config()
-                self.config_menu['menu'].add_command(label=new_config_name, command=tk._setit(self.config_var, new_config_name))
-                self.reload_ui_visibility()
+            if new_config_name in configs or new_config_name in ["New Config", "default.config", "", None]:
+                messagebox.showerror("Error", "Invalid or duplicate config name.")
+                self.config_var.set(settings["config"])
+                return
+            configs.pop("New Config", None)
+            configs[new_config_name] = {}
+            config = configs[new_config_name]
+            settings["config"] = new_config_name
+            if "modules" not in config:
+                config["modules"] = {}
+            if "watermark" not  in config["modules"]:
+                config["modules"]["watermark"] = {"active": False, "keybind": "None", "text_color": "#FFFFFF", "rgb": False, "position": {"x": 100, "y": 100}, "font_size": 20}
+            if "clickgui" not in config["modules"]:
+                config["modules"]["clickgui"] = {"active": True, "keybind": "INSERT"}
+            self.config_menu['menu'].delete(0, 'end')
+            self.config_menu['menu'].add_command(label=new_config_name, command=tk._setit(self.config_var, new_config_name))
+            self.config_menu['menu'].add_command(label="New Config", command=tk._setit(self.config_var, "New Config"))
+            self.reload_ui_visibility()
+            save_config()
     def initialize_backend(self):
         res = api_request("/")
         if not res:
