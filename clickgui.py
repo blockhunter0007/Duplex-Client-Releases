@@ -75,6 +75,7 @@ THEMES = {
         "header_bg": "#2e2e2e",
         "module_bg": "#2e2e2e",
         "active_fg": "#50fa7b",
+        "active_bg": "#2e2e2e",
         "disabled_fg": "#888888"
     },
 }
@@ -92,8 +93,11 @@ if not os.path.exists(script_dir / "data" / "themes"):
 if not os.path.exists(script_dir / "data" / "settings.json"):
     with open(script_dir / "data" / "settings.json", "w") as f:
         json.dump(settings, f, indent=4)
-with open(script_dir / "data" / "settings.json", "r") as f:
-    settings = json.load(f)
+try:
+    with open(script_dir / "data" / "settings.json", "r") as f:
+        settings = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError) as e:
+    log(f"Error loading settings: {e}", "ERROR")
 try:
     with open(script_dir / "data" / "configs" / f"{settings['config']}.config", "r") as f:
         config = json.load(f)
@@ -135,6 +139,7 @@ MOCK_MODULES = {
     'hitbox': {'toggle': True, 'value': True, 'category': 'combat', 'min_value': 0.6, 'max_value': 3.0},
     'reach': {'toggle': True, 'value': True, 'category': 'combat', 'min_value': 3.0, 'max_value': 6.0}
 }
+CONNECTED = True
 
 # =====================================================================
 # API CALL HELPERS
@@ -155,7 +160,11 @@ def load_config(config):
             api_request(f"/toggle_module/{module_name}/{module_data.get('active', False)}")
             if "value" in module_data:
                 api_request(f"/set_module_value/{module_name}/{module_data['value']}")
-def api_request(endpoint, method="GET"):
+def api_request(endpoint, method="GET", bypass = False, show_log=True):
+    if not CONNECTED and not bypass:
+        if show_log:
+            log(f"API request to {endpoint} skipped: Not connected to server.", "WARNING")
+        return None
     try:
         req = urllib.request.Request(f"{API_BASE}{endpoint}")
         req.add_header("Content-Type", "application/json")
@@ -163,8 +172,9 @@ def api_request(endpoint, method="GET"):
         if response.getcode() == 200:
             return json.loads(response.read().decode())
     except urllib.error.URLError as e:
-        log(f"API request to {endpoint} failed: {e}", "ERROR")
-    return None
+        if show_log:
+            log(f"API request to {endpoint} failed: {e}", "ERROR")
+    return {}
 def save_config():
     try:
         with open(script_dir / "data" / "configs" / f"{settings['config']}.config", "w") as f:
@@ -178,6 +188,19 @@ def save_settings():
             json.dump(settings, f, indent=4)
     except Exception as e:
         log(f"Failed to save settings: {e}", "ERROR")
+def check_thread():
+    while True:
+        time.sleep(30)
+        response = api_request("/", bypass=True, show_log=False)
+        if response and response.get("success"):
+            log(f"Server is running. Injection status: {response.get('injected')}, Injection time: {response.get('injection_time')}")
+            if not response.get("injected"):
+                log("Attempting to inject...")
+                inject_response = api_request("/inject")
+                if inject_response and "message" in inject_response:
+                    log(inject_response["message"])
+            break
+threading.Thread(target=check_thread, daemon=True).start()
 class keyboard_listener:
     def __init__(self):
         keyboard.on_press(self.handle_key_press)
@@ -202,6 +225,38 @@ keyboard_manager = keyboard_listener()
 # =====================================================================
 # COMPONENT CLASSES
 # =====================================================================
+HAS_RGB = False
+SINK = True
+class rainbow_loop:
+    def __init__(self, root, widget, speed=0.01, bg=False, fg=True):
+        self.root = root
+        self.widget = widget
+        self.speed = speed
+        self.bg = bg
+        self.fg = fg
+        self.hue = 0.0
+        self.running = True
+    def update_color(self):
+        if not self.running or not self.widget.winfo_exists():
+            return
+        self.hue += self.speed
+        if self.hue >= 1:
+            self.hue = 0.0
+        r, g, b = [int(x * 255) for x in colorsys.hsv_to_rgb(self.hue, 1.0, 1.0)]
+        color = f"#{r:02x}{g:02x}{b:02x}"
+        r, g, b = [int(x * 255) for x in colorsys.hsv_to_rgb((1-self.hue), 1.0, 1.0)]
+        inverted = f"#{r:02x}{g:02x}{b:02x}"
+        if self.fg:
+            self.widget.config(fg=color)
+        if self.bg:
+            self.widget.config(bg=color)
+            #self.widget.config(fg=inverted)
+        self.root.after(50, self.update_color)
+    def start(self):
+        self.running = True
+        self.update_color()
+    def stop(self):
+        self.running = False
 class ModuleRow(tk.Frame):
     def __init__(self, parent, name, data, is_working, app_instance, callback=None):
         global config
@@ -225,7 +280,7 @@ class ModuleRow(tk.Frame):
             self, text=self.name, bg=self.colors["module_bg"], 
             fg=self.colors["fg"], font=("Courier", 10, "bold"), anchor="w"
         )
-        self.lbl_name.pack(fill="x", padx=10, pady=5)
+        self.lbl_name.pack(fill="x", padx=0, pady=0)
         self.lbl_name.bind("<Button-1>", self.toggle_active)
         self.lbl_name.bind("<Button-3>", self.toggle_expand)
         self.options_frame = tk.Frame(self, bg=self.colors["module_bg"])
@@ -267,13 +322,15 @@ class ModuleRow(tk.Frame):
                 self.custom_cbs.append(self.custom_cb)
         if config["modules"][self.name].get("active", False):
             self.is_active = True
+        if HAS_RGB:
+            self.rgb = rainbow_loop(self.app.root, self.lbl_name, bg=True, fg=False)
         save_config()
         self.update_status()
 
     def toggle_active(self, event=None, state=None):
         if not self.is_working and self.app.hide_uninjected.get() == "grey":
             return
-            
+
         self.is_active = not self.is_active if state is None else state
         if self.callback:
             self.callback(event, self.is_active)
@@ -323,14 +380,17 @@ class ModuleRow(tk.Frame):
                 return
         config["modules"][self.name]["active"] = self.is_active
         if self.is_active:
-            self.lbl_name.config(fg=self.colors["active_fg"])
+            self.lbl_name.config(fg=self.colors["active_fg"], bg=self.colors["active_bg"])
+            if HAS_RGB:
+                self.rgb.start()
         else:
-            self.lbl_name.config(fg=self.colors["fg"])
+            self.lbl_name.config(fg=self.colors["fg"], bg=self.colors["module_bg"])
+            if HAS_RGB:
+                self.rgb.stop()
 
     def refresh_theme(self):
         self.colors = THEMES[settings["theme"]]
         self.configure(bg=self.colors["module_bg"])
-        self.lbl_name.config(bg=self.colors["module_bg"])
         self.options_frame.config(bg=self.colors["module_bg"])
         self.btn_bind.config(bg=self.colors["header_bg"], fg=self.colors["fg"])
         if hasattr(self, 'slider'):
@@ -587,6 +647,8 @@ class ClickGUIApp:
             messagebox.showwarning("Server Offline", f"Could not reach server at {API_BASE}.\nRunning in Offline/Mock dataset mode.")
             self.lbl_status.config(text="Status: Mock Dataset Mode (Offline)", fg="yellow")
             self.build_gui(MOCK_MODULES, list(MOCK_MODULES.keys())[len(MOCK_MODULES.keys())//2:])  # Simulate half working modules
+            global CONNECTED
+            CONNECTED = False
             return
         self.lbl_status.config(text="Status: Server up, checking injection status...", fg="orange")
         if not res.get("injected"):
@@ -609,12 +671,12 @@ class ClickGUIApp:
             for mod_name, mod_data in all_modules.items():
                 if mod_data['category'] == cat:
                     is_working = mod_name in working_modules
-                    
+
                     row = ModuleRow(win.container, mod_name, mod_data, is_working, self)
                     if config.get("modules", {}).get(mod_name, {}).get("active", False):
                         row.toggle_active()
                     win.modules.append(row)
-                    
+
                     if is_working or self.hide_uninjected.get() == "grey":
                         row.pack(fill="x", pady=2)
         for mod_name, mod_data in {
