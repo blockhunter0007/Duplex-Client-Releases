@@ -330,7 +330,7 @@ class ModuleRow(tk.Frame):
     def toggle_active(self, event=None, state=None):
         if not self.is_working and self.app.hide_uninjected.get() == "grey":
             return
-
+            
         self.is_active = not self.is_active if state is None else state
         if self.callback:
             self.callback(event, self.is_active)
@@ -441,6 +441,7 @@ class CategoryWindow(tk.Toplevel):
         self.modules = []
         if settings["windows"][title]["minimized"]:
             self.click(None, state=True)
+
     def click(self, event, state=None):
         global settings
         if time.time() - self.start_time < 0.2 or state is not None:
@@ -453,6 +454,7 @@ class CategoryWindow(tk.Toplevel):
             save_config()
         self._drag_x = None
         self._drag_y = None
+
     def start_drag(self, event):
         self.start_time = time.time()
         self._drag_x = event.x
@@ -472,8 +474,10 @@ class CategoryWindow(tk.Toplevel):
         self.container.config(bg=self.colors["bg"])
         for mod in self.modules:
             mod.refresh_theme()
+
     def update_alpha(self):
         self.attributes("-alpha", settings["alpha"])
+
     def reload_cfg(self):
         for mod in self.modules:
             mod.reload_cfg()
@@ -525,6 +529,7 @@ class ClickGUIApp:
         if self.minimized:
             self.on_release(None, state=True)
         self.initialize_backend()
+
     def on_release(self, event, state=None):
         global settings
         if time.time() - self.start_time < 0.2 or state is not None:
@@ -555,17 +560,20 @@ class ClickGUIApp:
         self.start_time = time.time()
         self._drag_x = event.x
         self._drag_y = event.y
+
     def on_drag(self, event):
         global settings
         x = self.root.winfo_x() + event.x - self._drag_x
         y = self.root.winfo_y() + event.y - self._drag_y
         self.root.geometry(f"+{x}+{y}")
         settings["windows"]["main"] = {"x": x, "y": y, "minimized": self.minimized}
+
     def close(self):
         if not messagebox.askyesno("Leave Injection", "Do you want to keep the injection active after closing the GUI?"): 
             api_request("/eject")
         self.root.destroy()
         save_config()
+
     def setup_launcher_ui(self):
         self.top_bar = tk.Frame(self.root, bg=self.colors["accent"], height=30)
         self.top_bar.pack(fill="x")
@@ -600,14 +608,15 @@ class ClickGUIApp:
         self.theme_menu = tk.OptionMenu(self.root, self.theme_var, *list(THEMES.keys()))
         self.theme_menu.config(bg=self.colors["bg"], fg=self.colors["fg"], highlightthickness=0, bd=0)
         self.theme_menu.pack(pady=5)
-        self.theme_var.trace("w", self.change_theme)
+        self.theme_var.trace_add("write", self.change_theme)
         self.config_var = tk.StringVar(value=settings["config"])
         self.config_menu = tk.OptionMenu(self.root, self.config_var, *list(configs.keys()))
         self.config_menu.config(bg=self.colors["bg"], fg=self.colors["fg"], highlightthickness=0, bd=0)
         self.config_menu.pack(pady=5)
-        self.config_var.trace("w", self.change_config)
+        self.config_var.trace_add("write", self.change_config)
         self.lbl_status = tk.Label(self.root, text="Checking backend server status...", font=("Courier", 9), bg=self.colors["bg"], fg="orange")
         self.lbl_status.pack(side="bottom", fill="x")
+
     def change_config(self, event=None, *args):
         global config
         global settings
@@ -641,6 +650,7 @@ class ClickGUIApp:
             self.config_menu['menu'].add_command(label="New Config", command=tk._setit(self.config_var, "New Config"))
             self.reload_ui_visibility()
             save_config()
+
     def initialize_backend(self):
         res = api_request("/")
         if not res:
@@ -655,6 +665,7 @@ class ClickGUIApp:
             self.lbl_status.config(text="Status: Injecting core module...", fg="orange")
             api_request("/inject")
         all_modules = api_request("/get_all_modules")["all_modules"] or MOCK_MODULES
+        print(f"All modules: {all_modules}")
         working_modules = api_request("/get_working") or list(MOCK_MODULES.keys())
         res = api_request("/get_injection_time")
         self.lbl_status.config(text=f"Status: Injected & Fully Hooked took {res.get('injection_time', 0):.2f} seconds", fg="#50fa7b")
@@ -670,6 +681,9 @@ class ClickGUIApp:
             self.windows[cat] = win
             for mod_name, mod_data in all_modules.items():
                 if mod_data['category'] == cat:
+                    if mod_data.get("default_value", None) is not None:
+                        mod_data["value"] = True
+                    mod_data["toggle"] = True
                     is_working = mod_name in working_modules
 
                     row = ModuleRow(win.container, mod_name, mod_data, is_working, self)
@@ -704,11 +718,13 @@ class ClickGUIApp:
                 row.pack(fill="x", pady=2)
                 self.windows["client"].modules.append(row)
         save_config()
+
     def watermark_font_size_update(self, size):
         global config
         config["modules"]["watermark"]["font_size"] = int(float(size))
         save_config()
         self.watermark_window.update_font(font=("Arial", config["modules"]["watermark"]["font_size"]))
+
     def update_alpha(self, alpha):
         global settings
         settings["alpha"] = alpha
@@ -716,6 +732,7 @@ class ClickGUIApp:
         self.root.attributes("-alpha", alpha)
         for win in self.windows.values():
             win.update_alpha()
+
     def toggle_windows(self, event=None, state=None):
         global config
         self.show_windows = not self.show_windows if state is None else state
@@ -730,12 +747,15 @@ class ClickGUIApp:
         else:
             self.root.withdraw()
         save_config()
+
     def watermark_color_piker(self):
         color_code = colorchooser.askcolor(title="Choose Watermark Color", initialcolor=config["modules"]["watermark"]["text_color"])
         if color_code[1]:
             self.watermark_update(text_color=color_code[1])
+
     def watermark_rgb_toggle(self, state):
         self.watermark_update(rgb=state)
+
     def watermark_toggle(self, event=None, state=None):
         global config
         config["modules"]["watermark"]["active"] = state if state is not None else not config["modules"]["watermark"]["active"]
@@ -745,6 +765,7 @@ class ClickGUIApp:
         else:
             self.watermark_window.withdraw()
         save_config()
+
     def watermark_update(self, text_color=None, rgb=None):
         global config
         if text_color is not None:
