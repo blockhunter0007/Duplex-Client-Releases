@@ -665,9 +665,8 @@ class ClickGUIApp:
             self.lbl_status.config(text="Status: Injecting core module...", fg="orange")
             api_request("/inject")
         all_modules = api_request("/get_all_modules")["all_modules"] or MOCK_MODULES
-        print(f"All modules: {all_modules}")
-        working_modules = api_request("/get_working") or list(MOCK_MODULES.keys())
-        res = api_request("/get_injection_time")
+        working_modules = api_request("/get_working")["working_modules"] or list(MOCK_MODULES.keys())
+        res = api_request("/")
         self.lbl_status.config(text=f"Status: Injected & Fully Hooked took {res.get('injection_time', 0):.2f} seconds", fg="#50fa7b")
         self.build_gui(all_modules, working_modules)
 
@@ -680,6 +679,7 @@ class ClickGUIApp:
             win = CategoryWindow(self.root, cat, start_x + (idx * 220), start_y)
             self.windows[cat] = win
             for mod_name, mod_data in all_modules.items():
+                #print(f"Processing module: {mod_name}, category: {mod_data['category']}, current category: {cat}")
                 if mod_data['category'] == cat:
                     if mod_data.get("default_value", None) is not None:
                         mod_data["value"] = True
