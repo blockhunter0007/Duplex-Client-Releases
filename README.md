@@ -6,3 +6,6 @@ how to use:
   - install python 3.11 or higher
   - install the keyboard module using pip (pip install keyboard)
   - run the python script (python clickgui.py)
+
+Licensing:
+  - clickgui.py
