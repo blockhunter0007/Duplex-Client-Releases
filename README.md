@@ -9,4 +9,4 @@ how to use:
 
 Licensing:
   - clickgui.py AGPL-v3
-  - server.zip
+  - server.zip closed source
