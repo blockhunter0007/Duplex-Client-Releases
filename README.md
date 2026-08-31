@@ -8,4 +8,5 @@ how to use:
   - run the python script (python clickgui.py)
 
 Licensing:
-  - clickgui.py
+  - clickgui.py AGPL-v3
+  - server.zip
