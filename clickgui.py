@@ -679,7 +679,7 @@ class ClickGUIApp:
             win = CategoryWindow(self.root, cat, start_x + (idx * 220), start_y)
             self.windows[cat] = win
             for mod_name, mod_data in all_modules.items():
-                #print(f"Processing module: {mod_name}, category: {mod_data['category']}, current category: {cat}")
+                #print(f"module: {mod_name}, category: {mod_data['category']}, current category: {cat}")
                 if mod_data['category'] == cat:
                     if mod_data.get("default_value", None) is not None:
                         mod_data["value"] = True
